@@ -1,0 +1,710 @@
+-- =====================================================
+-- Структура базы данных для интернет-магазина автозапчастей
+-- PostgreSQL
+-- =====================================================
+
+-- Создание базы данных
+-- CREATE DATABASE redparts_shop;
+
+-- Расширения
+CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
+CREATE EXTENSION IF NOT EXISTS "pg_trgm";
+
+-- =====================================================
+-- ТАБЛИЦЫ ПОЛЬЗОВАТЕЛЕЙ И АУТЕНТИФИКАЦИИ
+-- =====================================================
+
+-- Пользователи
+CREATE TABLE users (
+    id SERIAL PRIMARY KEY,
+    email VARCHAR(255) UNIQUE NOT NULL,
+    password_hash VARCHAR(255) NOT NULL,
+    first_name VARCHAR(100),
+    last_name VARCHAR(100),
+    phone VARCHAR(20),
+    is_active BOOLEAN DEFAULT true,
+    is_admin BOOLEAN DEFAULT false,
+    email_verified BOOLEAN DEFAULT false,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Профили пользователей
+CREATE TABLE user_profiles (
+    id SERIAL PRIMARY KEY,
+    user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
+    avatar VARCHAR(500),
+    date_of_birth DATE,
+    gender VARCHAR(10),
+    preferences JSONB,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- =====================================================
+-- ТАБЛИЦЫ АДРЕСОВ
+-- =====================================================
+
+-- Страны
+CREATE TABLE countries (
+    id SERIAL PRIMARY KEY,
+    code VARCHAR(3) UNIQUE NOT NULL,
+    name VARCHAR(100) NOT NULL,
+    phone_code VARCHAR(10),
+    currency_code VARCHAR(3),
+    is_active BOOLEAN DEFAULT true
+);
+
+-- Регионы/области
+CREATE TABLE regions (
+    id SERIAL PRIMARY KEY,
+    country_id INTEGER REFERENCES countries(id),
+    name VARCHAR(100) NOT NULL,
+    code VARCHAR(20)
+);
+
+-- Города
+CREATE TABLE cities (
+    id SERIAL PRIMARY KEY,
+    region_id INTEGER REFERENCES regions(id),
+    name VARCHAR(100) NOT NULL
+);
+
+-- Адреса пользователей
+CREATE TABLE addresses (
+    id SERIAL PRIMARY KEY,
+    user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
+    type VARCHAR(20) DEFAULT 'shipping', -- shipping, billing
+    first_name VARCHAR(100) NOT NULL,
+    last_name VARCHAR(100) NOT NULL,
+    company VARCHAR(200),
+    address_line_1 VARCHAR(255) NOT NULL,
+    address_line_2 VARCHAR(255),
+    city_id INTEGER REFERENCES cities(id),
+    postal_code VARCHAR(20),
+    phone VARCHAR(20),
+    is_default BOOLEAN DEFAULT false,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- =====================================================
+-- ТАБЛИЦЫ КАТЕГОРИЙ
+-- =====================================================
+
+-- Категории магазина
+CREATE TABLE categories (
+    id SERIAL PRIMARY KEY,
+    parent_id INTEGER REFERENCES categories(id),
+    name VARCHAR(200) NOT NULL,
+    slug VARCHAR(200) UNIQUE NOT NULL,
+    description TEXT,
+    image VARCHAR(500),
+    layout VARCHAR(20) DEFAULT 'products', -- categories, products
+    sort_order INTEGER DEFAULT 0,
+    is_active BOOLEAN DEFAULT true,
+    meta_title VARCHAR(255),
+    meta_description TEXT,
+    meta_keywords TEXT,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Создание индекса для быстрого поиска по slug
+CREATE INDEX idx_categories_slug ON categories(slug);
+CREATE INDEX idx_categories_parent_id ON categories(parent_id);
+
+-- =====================================================
+-- ТАБЛИЦЫ БРЕНДОВ
+-- =====================================================
+
+-- Бренды
+CREATE TABLE brands (
+    id SERIAL PRIMARY KEY,
+    slug VARCHAR(100) UNIQUE NOT NULL,
+    name VARCHAR(200) NOT NULL,
+    description TEXT,
+    image VARCHAR(500),
+    country_code VARCHAR(3) REFERENCES countries(code),
+    website VARCHAR(500),
+    is_active BOOLEAN DEFAULT true,
+    sort_order INTEGER DEFAULT 0,
+    meta_title VARCHAR(255),
+    meta_description TEXT,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- =====================================================
+-- ТАБЛИЦЫ ТИПОВ ПРОДУКТОВ
+-- =====================================================
+
+-- Типы продуктов
+CREATE TABLE product_types (
+    id SERIAL PRIMARY KEY,
+    name VARCHAR(200) NOT NULL,
+    slug VARCHAR(200) UNIQUE NOT NULL,
+    description TEXT,
+    is_active BOOLEAN DEFAULT true,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Группы атрибутов для типов продуктов
+CREATE TABLE product_type_attribute_groups (
+    id SERIAL PRIMARY KEY,
+    product_type_id INTEGER REFERENCES product_types(id) ON DELETE CASCADE,
+    name VARCHAR(200) NOT NULL,
+    slug VARCHAR(200) NOT NULL,
+    sort_order INTEGER DEFAULT 0,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Атрибуты для групп типов продуктов
+CREATE TABLE product_type_attributes (
+    id SERIAL PRIMARY KEY,
+    group_id INTEGER REFERENCES product_type_attribute_groups(id) ON DELETE CASCADE,
+    attribute_name VARCHAR(200) NOT NULL,
+    sort_order INTEGER DEFAULT 0,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- =====================================================
+-- ТАБЛИЦЫ ПРОДУКТОВ
+-- =====================================================
+
+-- Основная таблица продуктов
+CREATE TABLE products (
+    id SERIAL PRIMARY KEY,
+    name VARCHAR(500) NOT NULL,
+    slug VARCHAR(500) UNIQUE NOT NULL,
+    sku VARCHAR(100) UNIQUE,
+    part_number VARCHAR(100),
+    excerpt TEXT,
+    description TEXT,
+    price DECIMAL(10,2) NOT NULL,
+    compare_at_price DECIMAL(10,2),
+    cost_price DECIMAL(10,2),
+    weight DECIMAL(8,3),
+    dimensions JSONB, -- {length, width, height}
+    stock_quantity INTEGER DEFAULT 0,
+    stock_status VARCHAR(20) DEFAULT 'out-of-stock', -- in-stock, out-of-stock, on-backorder
+    low_stock_threshold INTEGER DEFAULT 5,
+    brand_id INTEGER REFERENCES brands(id),
+    product_type_id INTEGER REFERENCES product_types(id),
+    is_active BOOLEAN DEFAULT true,
+    is_featured BOOLEAN DEFAULT false,
+    is_bestseller BOOLEAN DEFAULT false,
+    is_new BOOLEAN DEFAULT false,
+    rating DECIMAL(3,2) DEFAULT 0,
+    reviews_count INTEGER DEFAULT 0,
+    views_count INTEGER DEFAULT 0,
+    sort_order INTEGER DEFAULT 0,
+    meta_title VARCHAR(255),
+    meta_description TEXT,
+    meta_keywords TEXT,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Создание индексов для продуктов
+CREATE INDEX idx_products_slug ON products(slug);
+CREATE INDEX idx_products_sku ON products(sku);
+CREATE INDEX idx_products_brand_id ON products(brand_id);
+CREATE INDEX idx_products_category_id ON products(product_type_id);
+CREATE INDEX idx_products_price ON products(price);
+CREATE INDEX idx_products_stock_status ON products(stock_status);
+CREATE INDEX idx_products_is_active ON products(is_active);
+
+-- Связь продуктов с категориями (many-to-many)
+CREATE TABLE product_categories (
+    id SERIAL PRIMARY KEY,
+    product_id INTEGER REFERENCES products(id) ON DELETE CASCADE,
+    category_id INTEGER REFERENCES categories(id) ON DELETE CASCADE,
+    is_primary BOOLEAN DEFAULT false,
+    UNIQUE(product_id, category_id)
+);
+
+-- Изображения продуктов
+CREATE TABLE product_images (
+    id SERIAL PRIMARY KEY,
+    product_id INTEGER REFERENCES products(id) ON DELETE CASCADE,
+    image_url VARCHAR(500) NOT NULL,
+    alt_text VARCHAR(255),
+    sort_order INTEGER DEFAULT 0,
+    is_primary BOOLEAN DEFAULT false,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Атрибуты продуктов
+CREATE TABLE product_attributes (
+    id SERIAL PRIMARY KEY,
+    product_id INTEGER REFERENCES products(id) ON DELETE CASCADE,
+    name VARCHAR(200) NOT NULL,
+    slug VARCHAR(200) NOT NULL,
+    value TEXT NOT NULL,
+    is_featured BOOLEAN DEFAULT false,
+    sort_order INTEGER DEFAULT 0,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Опции продуктов (размер, цвет и т.д.)
+CREATE TABLE product_options (
+    id SERIAL PRIMARY KEY,
+    product_id INTEGER REFERENCES products(id) ON DELETE CASCADE,
+    name VARCHAR(200) NOT NULL,
+    slug VARCHAR(200) NOT NULL,
+    type VARCHAR(50) NOT NULL, -- default, color, size, etc.
+    is_required BOOLEAN DEFAULT false,
+    sort_order INTEGER DEFAULT 0,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Значения опций продуктов
+CREATE TABLE product_option_values (
+    id SERIAL PRIMARY KEY,
+    option_id INTEGER REFERENCES product_options(id) ON DELETE CASCADE,
+    name VARCHAR(200) NOT NULL,
+    slug VARCHAR(200) NOT NULL,
+    color VARCHAR(7), -- hex color code
+    image VARCHAR(500),
+    price_adjustment DECIMAL(10,2) DEFAULT 0,
+    sort_order INTEGER DEFAULT 0,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Теги продуктов
+CREATE TABLE product_tags (
+    id SERIAL PRIMARY KEY,
+    name VARCHAR(100) UNIQUE NOT NULL,
+    slug VARCHAR(100) UNIQUE NOT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Связь продуктов с тегами
+CREATE TABLE product_tag_relations (
+    id SERIAL PRIMARY KEY,
+    product_id INTEGER REFERENCES products(id) ON DELETE CASCADE,
+    tag_id INTEGER REFERENCES product_tags(id) ON DELETE CASCADE,
+    UNIQUE(product_id, tag_id)
+);
+
+-- =====================================================
+-- ТАБЛИЦЫ СОВМЕСТИМОСТИ С ТРАНСПОРТНЫМИ СРЕДСТВАМИ
+-- =====================================================
+
+-- Марки автомобилей
+CREATE TABLE vehicle_makes (
+    id SERIAL PRIMARY KEY,
+    name VARCHAR(100) NOT NULL,
+    slug VARCHAR(100) UNIQUE NOT NULL,
+    country_code VARCHAR(3) REFERENCES countries(code),
+    is_active BOOLEAN DEFAULT true,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Модели автомобилей
+CREATE TABLE vehicle_models (
+    id SERIAL PRIMARY KEY,
+    make_id INTEGER REFERENCES vehicle_makes(id) ON DELETE CASCADE,
+    name VARCHAR(100) NOT NULL,
+    slug VARCHAR(100) NOT NULL,
+    year_from INTEGER,
+    year_to INTEGER,
+    is_active BOOLEAN DEFAULT true,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(make_id, name, year_from, year_to)
+);
+
+-- Годы выпуска
+CREATE TABLE vehicle_years (
+    id SERIAL PRIMARY KEY,
+    year INTEGER UNIQUE NOT NULL,
+    is_active BOOLEAN DEFAULT true
+);
+
+-- Совместимость продуктов с автомобилями
+CREATE TABLE product_vehicle_compatibility (
+    id SERIAL PRIMARY KEY,
+    product_id INTEGER REFERENCES products(id) ON DELETE CASCADE,
+    make_id INTEGER REFERENCES vehicle_makes(id) ON DELETE CASCADE,
+    model_id INTEGER REFERENCES vehicle_models(id) ON DELETE CASCADE,
+    year_from INTEGER,
+    year_to INTEGER,
+    notes TEXT,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- =====================================================
+-- ТАБЛИЦЫ ОТЗЫВОВ
+-- =====================================================
+
+-- Отзывы на продукты
+CREATE TABLE product_reviews (
+    id SERIAL PRIMARY KEY,
+    product_id INTEGER REFERENCES products(id) ON DELETE CASCADE,
+    user_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
+    rating INTEGER NOT NULL CHECK (rating >= 1 AND rating <= 5),
+    title VARCHAR(255),
+    comment TEXT,
+    is_approved BOOLEAN DEFAULT false,
+    is_verified_purchase BOOLEAN DEFAULT false,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- =====================================================
+-- ТАБЛИЦЫ ЗАКАЗОВ
+-- =====================================================
+
+-- Статусы заказов
+CREATE TABLE order_statuses (
+    id SERIAL PRIMARY KEY,
+    name VARCHAR(100) NOT NULL,
+    color VARCHAR(7),
+    sort_order INTEGER DEFAULT 0,
+    is_active BOOLEAN DEFAULT true
+);
+
+-- Заказы
+CREATE TABLE orders (
+    id SERIAL PRIMARY KEY,
+    order_number VARCHAR(50) UNIQUE NOT NULL,
+    user_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
+    status_id INTEGER REFERENCES order_statuses(id),
+    subtotal DECIMAL(10,2) NOT NULL,
+    tax_amount DECIMAL(10,2) DEFAULT 0,
+    shipping_amount DECIMAL(10,2) DEFAULT 0,
+    discount_amount DECIMAL(10,2) DEFAULT 0,
+    total_amount DECIMAL(10,2) NOT NULL,
+    currency_code VARCHAR(3) DEFAULT 'USD',
+    shipping_address_id INTEGER REFERENCES addresses(id),
+    billing_address_id INTEGER REFERENCES addresses(id),
+    notes TEXT,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Позиции заказов
+CREATE TABLE order_items (
+    id SERIAL PRIMARY KEY,
+    order_id INTEGER REFERENCES orders(id) ON DELETE CASCADE,
+    product_id INTEGER REFERENCES products(id),
+    product_name VARCHAR(500) NOT NULL,
+    product_sku VARCHAR(100),
+    quantity INTEGER NOT NULL,
+    unit_price DECIMAL(10,2) NOT NULL,
+    total_price DECIMAL(10,2) NOT NULL,
+    options JSONB, -- дополнительные опции
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- =====================================================
+-- ТАБЛИЦЫ КОРЗИНЫ И ИЗБРАННОГО
+-- =====================================================
+
+-- Корзина
+CREATE TABLE cart_items (
+    id SERIAL PRIMARY KEY,
+    user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
+    session_id VARCHAR(255),
+    product_id INTEGER REFERENCES products(id) ON DELETE CASCADE,
+    quantity INTEGER NOT NULL DEFAULT 1,
+    options JSONB,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Избранное
+CREATE TABLE wishlist_items (
+    id SERIAL PRIMARY KEY,
+    user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
+    product_id INTEGER REFERENCES products(id) ON DELETE CASCADE,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(user_id, product_id)
+);
+
+-- =====================================================
+-- ТАБЛИЦЫ ФИЛЬТРОВ
+-- =====================================================
+
+-- Фильтры
+CREATE TABLE filters (
+    id SERIAL PRIMARY KEY,
+    name VARCHAR(200) NOT NULL,
+    slug VARCHAR(200) UNIQUE NOT NULL,
+    type VARCHAR(50) NOT NULL, -- category, brand, price, color, etc.
+    is_active BOOLEAN DEFAULT true,
+    sort_order INTEGER DEFAULT 0,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Значения фильтров
+CREATE TABLE filter_values (
+    id SERIAL PRIMARY KEY,
+    filter_id INTEGER REFERENCES filters(id) ON DELETE CASCADE,
+    value VARCHAR(200) NOT NULL,
+    slug VARCHAR(200) NOT NULL,
+    sort_order INTEGER DEFAULT 0,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- =====================================================
+-- ТАБЛИЦЫ НАСТРОЕК И КОНФИГУРАЦИИ
+-- =====================================================
+
+-- Настройки магазина
+CREATE TABLE shop_settings (
+    id SERIAL PRIMARY KEY,
+    key VARCHAR(100) UNIQUE NOT NULL,
+    value TEXT,
+    type VARCHAR(50) DEFAULT 'string', -- string, number, boolean, json
+    description TEXT,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Валюты
+CREATE TABLE currencies (
+    id SERIAL PRIMARY KEY,
+    code VARCHAR(3) UNIQUE NOT NULL,
+    name VARCHAR(100) NOT NULL,
+    symbol VARCHAR(10) NOT NULL,
+    exchange_rate DECIMAL(10,6) DEFAULT 1.0,
+    is_default BOOLEAN DEFAULT false,
+    is_active BOOLEAN DEFAULT true,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Языки
+CREATE TABLE languages (
+    id SERIAL PRIMARY KEY,
+    code VARCHAR(5) UNIQUE NOT NULL,
+    name VARCHAR(100) NOT NULL,
+    native_name VARCHAR(100) NOT NULL,
+    is_default BOOLEAN DEFAULT false,
+    is_active BOOLEAN DEFAULT true,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- =====================================================
+-- ТРИГГЕРЫ ДЛЯ ОБНОВЛЕНИЯ ВРЕМЕНИ
+-- =====================================================
+
+-- Функция для обновления updated_at
+CREATE OR REPLACE FUNCTION update_updated_at_column()
+RETURNS TRIGGER AS $$
+BEGIN
+    NEW.updated_at = CURRENT_TIMESTAMP;
+    RETURN NEW;
+END;
+$$ language 'plpgsql';
+
+-- Применение триггеров к таблицам
+CREATE TRIGGER update_users_updated_at BEFORE UPDATE ON users
+    FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+
+CREATE TRIGGER update_products_updated_at BEFORE UPDATE ON products
+    FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+
+CREATE TRIGGER update_orders_updated_at BEFORE UPDATE ON orders
+    FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+
+-- =====================================================
+-- ИНДЕКСЫ ДЛЯ ПРОИЗВОДИТЕЛЬНОСТИ
+-- =====================================================
+
+-- Индексы для поиска
+CREATE INDEX idx_products_name_gin ON products USING gin(to_tsvector('english', name));
+CREATE INDEX idx_products_description_gin ON products USING gin(to_tsvector('english', description));
+CREATE INDEX idx_products_part_number_gin ON products USING gin(part_number gin_trgm_ops);
+
+-- Индексы для фильтрации
+CREATE INDEX idx_products_price_range ON products(price) WHERE is_active = true;
+CREATE INDEX idx_products_brand_active ON products(brand_id, is_active);
+CREATE INDEX idx_products_category_active ON products(product_type_id, is_active);
+
+-- Индексы для сортировки
+CREATE INDEX idx_products_rating_reviews ON products(rating DESC, reviews_count DESC) WHERE is_active = true;
+CREATE INDEX idx_products_created_at ON products(created_at DESC) WHERE is_active = true;
+CREATE INDEX idx_products_price_low ON products(price ASC) WHERE is_active = true;
+CREATE INDEX idx_products_price_high ON products(price DESC) WHERE is_active = true;
+
+-- =====================================================
+-- БАЗОВЫЕ ДАННЫЕ
+-- =====================================================
+
+-- Вставка базовых статусов заказов
+INSERT INTO order_statuses (name, color, sort_order) VALUES
+('Pending', '#FFA500', 1),
+('Processing', '#0000FF', 2),
+('Shipped', '#008000', 3),
+('Delivered', '#008000', 4),
+('Cancelled', '#FF0000', 5),
+('Refunded', '#808080', 6);
+
+-- Вставка базовых валют
+INSERT INTO currencies (code, name, symbol, is_default) VALUES
+('USD', 'US Dollar', '$', true),
+('EUR', 'Euro', '€', false),
+('RUB', 'Russian Ruble', '₽', false);
+
+-- Вставка базовых языков
+INSERT INTO languages (code, name, native_name, is_default) VALUES
+('en', 'English', 'English', true),
+('ru', 'Russian', 'Русский', false),
+('ar', 'Arabic', 'العربية', false);
+
+-- Вставка базовых стран
+INSERT INTO countries (code, name, phone_code, currency_code) VALUES
+('US', 'United States', '+1', 'USD'),
+('RU', 'Russia', '+7', 'RUB'),
+('DE', 'Germany', '+49', 'EUR'),
+('JP', 'Japan', '+81', 'JPY');
+
+INSERT INTO currencies (code, name, symbol, is_default)
+VALUES ('KZT', 'Теңге', '₸', false);
+
+INSERT INTO countries (code, name, phone_code, currency_code)
+VALUES ('KZ', 'Қазақстан', '+7', 'KZT');
+
+-- =====================================================
+-- ПРАВА ДОСТУПА
+-- =====================================================
+
+-- Создание пользователя для приложения (замените на свои данные)
+-- CREATE USER redparts_app WITH PASSWORD 'your_secure_password';
+
+-- Предоставление прав
+-- GRANT CONNECT ON DATABASE redparts_shop TO redparts_app;
+-- GRANT USAGE ON SCHEMA public TO redparts_app;
+-- GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO redparts_app;
+-- GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO redparts_app;
+
+-- =====================================================
+-- КОММЕНТАРИИ
+-- =====================================================
+
+/*
+Эта схема базы данных включает:
+
+1. Пользователи и аутентификация
+2. Адреса и география
+3. Категории и бренды
+4. Продукты с атрибутами и опциями
+5. Совместимость с автомобилями
+6. Отзывы и рейтинги
+7. Заказы и корзина
+8. Фильтры и поиск
+9. Настройки магазина
+10. Мультиязычность и мультивалютность
+
+Для использования:
+1. Создайте базу данных PostgreSQL
+2. Выполните этот скрипт
+3. Настройте подключение в вашем приложении
+4. Создайте пользователя БД с соответствующими правами
+*/
+
+
+
+
+
+INSERT INTO countries (code, name, phone_code, currency_code) VALUES
+('KR', 'South Korea', '+82', 'KRW')
+ON CONFLICT (code) DO NOTHING;
+
+INSERT INTO countries (code, name, phone_code, currency_code) VALUES
+('FR', 'France', '+33', 'EUR')
+ON CONFLICT (code) DO NOTHING;
+
+
+
+
+
+
+-- Марки
+INSERT INTO vehicle_makes (name, slug, country_code) VALUES
+('Toyota','toyota','JP'),
+('Ford','ford','US'),
+('Volkswagen','volkswagen','DE'),
+('BMW','bmw','DE'),
+('Mercedes-Benz','mercedes-benz','DE'),
+('Audi','audi','DE'),
+('Nissan','nissan','JP'),
+('Honda','honda','JP'),
+('Hyundai','hyundai','KR'),
+('Kia','kia','KR'),
+('Chevrolet','chevrolet','US'),
+('Mazda','mazda','JP'),
+('Subaru','subaru','JP'),
+('Lexus','lexus','JP'),
+('Renault','renault','FR');
+
+-- Модели (по ключевым популярным)
+INSERT INTO vehicle_models (make_id, name, slug, year_from, year_to)
+VALUES
+((SELECT id FROM vehicle_makes WHERE slug='toyota'), 'Camry','camry',2007,2024),
+((SELECT id FROM vehicle_makes WHERE slug='toyota'), 'Corolla','corolla',2006,2024),
+((SELECT id FROM vehicle_makes WHERE slug='toyota'), 'RAV4','rav4',2006,2024),
+((SELECT id FROM vehicle_makes WHERE slug='toyota'), 'Highlander','highlander',2008,2024),
+((SELECT id FROM vehicle_makes WHERE slug='toyota'), 'Land Cruiser','land-cruiser',2005,2024),
+((SELECT id FROM vehicle_makes WHERE slug='ford'), 'Focus','focus',2005,2018),
+((SELECT id FROM vehicle_makes WHERE slug='ford'), 'Fusion/Mondeo','mondeo',2007,2020),
+((SELECT id FROM vehicle_makes WHERE slug='ford'), 'Escape/Kuga','kuga',2008,2024),
+((SELECT id FROM vehicle_makes WHERE slug='ford'), 'F-150','f-150',2009,2024),
+((SELECT id FROM vehicle_makes WHERE slug='volkswagen'), 'Golf','golf',2006,2024),
+((SELECT id FROM vehicle_makes WHERE slug='volkswagen'), 'Passat','passat',2006,2022),
+((SELECT id FROM vehicle_makes WHERE slug='volkswagen'), 'Tiguan','tiguan',2008,2024),
+((SELECT id FROM vehicle_makes WHERE slug='volkswagen'), 'Polo','polo',2006,2022),
+((SELECT id FROM vehicle_makes WHERE slug='bmw'), '3 Series','3-series',2006,2024),
+((SELECT id FROM vehicle_makes WHERE slug='bmw'), '5 Series','5-series',2006,2024),
+((SELECT id FROM vehicle_makes WHERE slug='bmw'), 'X3','x3',2007,2024),
+((SELECT id FROM vehicle_makes WHERE slug='bmw'), 'X5','x5',2007,2024),
+((SELECT id FROM vehicle_makes WHERE slug='mercedes-benz'), 'C-Class','c-class',2007,2024),
+((SELECT id FROM vehicle_makes WHERE slug='mercedes-benz'), 'E-Class','e-class',2007,2024),
+((SELECT id FROM vehicle_makes WHERE slug='mercedes-benz'), 'GLC','glc',2015,2024),
+((SELECT id FROM vehicle_makes WHERE slug='mercedes-benz'), 'GLE','gle',2012,2024),
+((SELECT id FROM vehicle_makes WHERE slug='audi'), 'A4','a4',2006,2024),
+((SELECT id FROM vehicle_makes WHERE slug='audi'), 'A6','a6',2006,2024),
+((SELECT id FROM vehicle_makes WHERE slug='audi'), 'Q5','q5',2009,2024),
+((SELECT id FROM vehicle_makes WHERE slug='audi'), 'Q7','q7',2007,2024),
+((SELECT id FROM vehicle_makes WHERE slug='nissan'), 'Altima','altima',2007,2024),
+((SELECT id FROM vehicle_makes WHERE slug='nissan'), 'X-Trail/Rogue','x-trail',2008,2024),
+((SELECT id FROM vehicle_makes WHERE slug='nissan'), 'Qashqai','qashqai',2007,2024),
+((SELECT id FROM vehicle_makes WHERE slug='honda'), 'Civic','civic',2006,2024),
+((SELECT id FROM vehicle_makes WHERE slug='honda'), 'Accord','accord',2006,2024),
+((SELECT id FROM vehicle_makes WHERE slug='honda'), 'CR-V','cr-v',2007,2024),
+((SELECT id FROM vehicle_makes WHERE slug='hyundai'), 'Elantra','elantra',2007,2024),
+((SELECT id FROM vehicle_makes WHERE slug='hyundai'), 'Sonata','sonata',2006,2024),
+((SELECT id FROM vehicle_makes WHERE slug='hyundai'), 'Tucson','tucson',2006,2024),
+((SELECT id FROM vehicle_makes WHERE slug='kia'), 'Rio','rio',2007,2022),
+((SELECT id FROM vehicle_makes WHERE slug='kia'), 'Cerato/Forte','cerato',2006,2024),
+((SELECT id FROM vehicle_makes WHERE slug='kia'), 'Sportage','sportage',2007,2024),
+((SELECT id FROM vehicle_makes WHERE slug='chevrolet'), 'Cruze','cruze',2009,2019),
+((SELECT id FROM vehicle_makes WHERE slug='chevrolet'), 'Malibu','malibu',2008,2024),
+((SELECT id FROM vehicle_makes WHERE slug='chevrolet'), 'Equinox','equinox',2009,2024),
+((SELECT id FROM vehicle_makes WHERE slug='mazda'), 'Mazda3','mazda3',2006,2024),
+((SELECT id FROM vehicle_makes WHERE slug='mazda'), 'Mazda6','mazda6',2006,2021),
+((SELECT id FROM vehicle_makes WHERE slug='mazda'), 'CX-5','cx-5',2012,2024),
+((SELECT id FROM vehicle_makes WHERE slug='subaru'), 'Impreza','impreza',2007,2024),
+((SELECT id FROM vehicle_makes WHERE slug='subaru'), 'Forester','forester',2006,2024),
+((SELECT id FROM vehicle_makes WHERE slug='subaru'), 'Outback','outback',2006,2024),
+((SELECT id FROM vehicle_makes WHERE slug='lexus'), 'RX','rx',2007,2024),
+((SELECT id FROM vehicle_makes WHERE slug='lexus'), 'ES','es',2007,2024),
+((SELECT id FROM vehicle_makes WHERE slug='lexus'), 'NX','nx',2014,2024),
+((SELECT id FROM vehicle_makes WHERE slug='renault'), 'Megane','megane',2006,2022),
+((SELECT id FROM vehicle_makes WHERE slug='renault'), 'Clio','clio',2006,2022),
+((SELECT id FROM vehicle_makes WHERE slug='renault'), 'Duster','duster',2010,2024);
+
+-- Годы (широкий справочник)
+INSERT INTO vehicle_years (year) VALUES
+(2005),(2006),(2007),(2008),(2009),(2010),(2011),(2012),(2013),(2014),
+(2015),(2016),(2017),(2018),(2019),(2020),(2021),(2022),(2023),(2024);
+
+INSERT INTO categories (parent_id, name, slug, description, image, layout, sort_order, is_active) VALUES
+(NULL,'Tires & Wheels','tires-wheels',NULL,NULL,'products',1,true),
+(NULL,'Interior Parts','interior-parts',NULL,NULL,'products',2,true),
+(NULL,'Engine & Drivetrain','engine-drivetrain',NULL,NULL,'products',3,true)
+ON CONFLICT (slug) DO NOTHING;
