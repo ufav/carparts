@@ -1,0 +1,22 @@
+# Node
+node_modules/
+.npm/
+.yarn/*
+!.yarn/patches
+!.yarn/releases
+!.yarn/plugins
+!.yarn/sdks
+!.yarn/versions
+.next/
+dist/
+coverage/
+
+# Python
+backend/venv/
+__pycache__/
+*.pyc
+.env
+
+# Misc
+.DS_Store
+*.log
